@@ -1,0 +1,111 @@
+#!/usr/bin/env ruby[4~
+
+# file: rscript-server.rb[4~
+
+require 'socket'
+require 'app-routes'
+require 'rscript'
+require 'rexml/document'
+
+class RScriptServer
+  include REXML
+
+  def initialize(raw_opts={})
+    opts = {ip: '0.0.0.0', port: 4446, pkg_url: ''}.merge(raw_opts)
+    @ip, @port, @url_base = opts[:ip], opts[:port], opts[:pkg_url]
+
+    super()
+    params = {}
+    @app = AppRoutes.new(params)
+    application(params)
+
+    @content_type = 'text/html'
+
+  end
+
+  def start
+
+    server = TCPServer.new(@ip, @port)
+
+    while (session = server.accept)
+
+      raw_request = session.gets
+      request = raw_request[/.[^\s]+(?= HTTP\/1\.\d)/].strip      
+      puts "%s %s" % [Time.now,request]
+
+      result = @app.run(request)
+
+      result ||= "404: page not found"
+
+      session.print "HTTP/1.1 200/OK\r\nContent-type: #{@content_type}; charset=utf-8\r\n\r\n"
+      session.print result
+      session.close
+    end
+  end
+
+  private
+
+  def application(params)
+
+    @app.routes do
+
+      get '/do/:package/:job' do |package,job|
+
+        jobs = "//job:" + job
+        url = "%s%s.rsf" % [@url_base, package] 
+
+        run(url, jobs, params)
+      end
+
+      get '/do/:package/:job/*' do |package, job|
+
+        jobs = "//job:" + job
+        raw_args = params[:splat]
+        args = raw_args.join.split('/')[1..-1]
+        url = "%s%s.rsf" % [@url_base, package] 
+
+        run(url, jobs, params, args)
+      end
+
+      get '/source/:package' do |package|
+
+        url = "%s%s.rsf" % [@url_base, package]
+        @content_type = 'text/plain'
+        open(url, "UserAgent" => 'RscriptServer').read
+      end
+
+      get '/source/:package/:job' do |package, job|
+
+        url = "%s%s.rsf" % [@url_base, package]
+        buffer = open(url, "UserAgent" => 'RscriptServer').read            
+        doc = Document.new(buffer)
+
+        @content_type = 'text/plain'
+        XPath.first(doc.root, "//job[@id='#{job}']").to_s
+      end
+
+    end
+  end
+
+  def get(arg,&block)
+    @app.get(arg, &block)
+  end
+
+  def run_rcscript(rsf_url, jobs, arg='')
+    ajobs = jobs.split(/\s/)
+    args = [rsf_url, ajobs, arg].flatten
+    rs = RScript.new()
+    rs.run(args)
+  end
+
+  def run(url, jobs, params={}, qargs=[])
+    result, args = run_rcscript(url, jobs, qargs)
+
+    begin
+      eval(result)
+    rescue
+      "rws error: " + ($!).to_s
+    end
+  end
+
+end
