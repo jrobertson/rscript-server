@@ -18,7 +18,6 @@ class RScriptServer
     params = {}
     @app = AppRoutes.new(params)
     application(params)
-    @rscript = RScript.new()
 
     @content_type = 'text/html'
 
@@ -54,15 +53,17 @@ class RScriptServer
 
         jobs = "//job:" + job
         url = "%s%s.rsf" % [@url_base, package] 
+
         run(url, jobs, params)
       end
 
       get '/do/:package/:job/*' do |package, job|
-
+  
         jobs = "//job:" + job
         raw_args = params[:splat]
         args = raw_args.join.split('/')[1..-1]
         url = "%s%s.rsf" % [@url_base, package] 
+
         run(url, jobs, params, args)
       end
 
@@ -70,6 +71,7 @@ class RScriptServer
 
         url = "%s%s.rsf" % [@url_base, package]
         @content_type = 'text/plain'
+        puts 'url : ' + url
         open(url, "UserAgent" => 'RscriptServer').read
       end
 
@@ -90,17 +92,21 @@ class RScriptServer
     @app.get(arg, &block)
   end
 
-  def run_rcscript(rsf_url, jobs, raw_args=[])
-    @rscript.read([rsf_url, jobs.split(/\s/), raw_args].flatten)
+  def run_rcscript(rsf_url, jobs, arg='')
+    ajobs = jobs.split(/\s/)
+    args = [rsf_url, ajobs, arg].flatten
+    rs = RScript.new()
+    rs.run(args)
   end
 
-  def run(url, jobs, *qargs)
+  def run(url, jobs, params={}, qargs=[])
     result, args = run_rcscript(url, jobs, qargs)
-    
+
     begin
-      eval result
+      eval(result)
     rescue
       "rws error: " + ($!).to_s
     end
   end
+
 end
